@@ -12,7 +12,11 @@ function decodeBencode(bencodedValue) {
       throw new Error("Invalid encoded value");
     }
     return bencodedValue.substr(firstColonIndex + 1);
-  } else {
+  }
+  else if (bencodedValue[0] === "i" && bencodedValue[bencodedValue.length - 1] === "e") {
+    return +bencodedValue.slice(1, -1);
+  }
+  else {
     throw new Error("Only strings are supported at the moment");
   }
 }
@@ -26,7 +30,7 @@ function main() {
   // Uncomment this block to pass the first stage
   if (command === "decode") {
     const bencodedValue = process.argv[3];
-  
+
     // In JavaScript, there's no need to manually convert bytes to string for printing
     // because JS doesn't distinguish between bytes and strings in the same way Python does.
     console.log(JSON.stringify(decodeBencode(bencodedValue)));
