@@ -118,7 +118,7 @@ function decodeBencode(data) {
 
 const readFile = (pathStr) => {
   const d = fs.readFileSync(path.resolve('.', pathStr), { encoding: 'ascii', flag: 'r' }).trim();
-  console.log(d);
+  //console.log(d);
   return d;
 }
 
