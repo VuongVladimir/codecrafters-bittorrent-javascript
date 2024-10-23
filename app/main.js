@@ -2,6 +2,7 @@ const process = require("process");
 const util = require("util");
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('crypto');
 
 // Examples:
 // - decodeBencode("5:hello") -> "hello"
@@ -121,6 +122,31 @@ const readFile = (pathStr) => {
   return d;
 }
 
+
+function encodeBencode(obj) {
+  if (typeof obj === 'string') {
+    return obj.length + ':' + obj;
+  } else if (typeof obj === 'number') {
+    return 'i' + obj + 'e';
+  } else if (Array.isArray(obj)) {
+    return 'l' + obj.map(encodeBencode).join('') + 'e';
+  } else if (typeof obj === 'object') {
+    let encoded = 'd';
+    for (const [key, value] of Object.entries(obj)) {
+      encoded += encodeBencode(key) + encodeBencode(value);
+    }
+    return encoded + 'e';
+  }
+  throw new Error('Unsupported data type');
+}
+
+// Function to calculate the SHA-1 hash
+function calculateInfoHash(infoDict) {
+  const bencodedInfo = encodeBencode(infoDict); // Re-bencode the info dictionary
+  const sha1Hash = crypto.createHash('sha1').update(bencodedInfo).digest('hex'); // Calculate SHA-1 hash
+  return sha1Hash;
+}
+
 function main() {
   const command = process.argv[2];
 
@@ -140,6 +166,9 @@ function main() {
     const data = decodeBencode(readFile(pathStr));
     console.log('Tracker URL:', data.announce);
     console.log('Length:', data.info.length);
+    // info-hash
+    const infoHash = calculateInfoHash(data.info);
+    console.log('Info Hash:', infoHash);
   }
   else {
     throw new Error(`Unknown command ${command}`);
