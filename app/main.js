@@ -125,9 +125,7 @@ const readFile = (pathStr) => {
 
 function encodeBencode(obj) {
   if (typeof obj === 'string') {
-    return Buffer.byteLength(obj) + ':' + obj;
-  } else if (Buffer.isBuffer(obj)) { // Handle binary data
-    return obj.length + ':' + obj.toString('binary');
+    return obj.length + ':' + obj;
   } else if (typeof obj === 'number') {
     return 'i' + obj + 'e';
   } else if (Array.isArray(obj)) {
@@ -141,7 +139,6 @@ function encodeBencode(obj) {
   }
   throw new Error('Unsupported data type');
 }
-
 
 // Function to calculate the SHA-1 hash
 function calculateInfoHash(infoDict) {
