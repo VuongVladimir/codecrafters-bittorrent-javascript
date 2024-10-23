@@ -106,8 +106,10 @@ function main() {
     console.log(JSON.stringify(decodeBencode(bencodedValue)));
   }
   else if (command === 'info') {
-    const pathStr = process.argv[3];
-    const data = decodeBencode(readFile(pathStr));
+    //const pathStr = process.argv[3];
+   // const data = decodeBencode(readFile(pathStr));
+   const buff = fs.readFileSync(process.argv[3]);
+    const [data] = decodeBencode(buff.toString("binary"));
     const bencodeInfo = bencode(data.info);
     const tmpBuff = Buffer.from(bencodeInfo, "binary");
     const hash = calculateSHA1(tmpBuff);
