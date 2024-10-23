@@ -3,7 +3,7 @@ const util = require("util");
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('crypto');
-const { bencode, decodeBencode } = require("./bencode");
+const { encode, decode } = require("./bencode");
 
 // Examples:
 // - decodeBencode("5:hello") -> "hello"
@@ -60,22 +60,7 @@ const readFile = (pathStr) => {
 }
 
 
-// function encodeBencode(obj) {
-//   if (typeof obj === 'string') {
-//     return obj.length + ':' + obj;
-//   } else if (typeof obj === 'number') {
-//     return 'i' + obj + 'e';
-//   } else if (Array.isArray(obj)) {
-//     return 'l' + obj.map(encodeBencode).join('') + 'e';
-//   } else if (typeof obj === 'object') {
-//     let encoded = 'd';
-//     for (const [key, value] of Object.entries(obj)) {
-//       encoded += encodeBencode(key) + encodeBencode(value);
-//     }
-//     return encoded + 'e';
-//   }
-//   throw new Error('Unsupported data type');
-// }
+
 
 // // Function to calculate the SHA-1 hash
 // function calculateInfoHash(infoDict) {
@@ -103,19 +88,14 @@ function main() {
 
     // In JavaScript, there's no need to manually convert bytes to string for printing
     // because JS doesn't distinguish between bytes and strings in the same way Python does.
-    console.log(JSON.stringify(decodeBencode(bencodedValue)));
+    console.log(JSON.stringify(decode(bencodedValue)));
   }
   else if (command === 'info') {
-    //const pathStr = process.argv[3];
-   // const data = decodeBencode(readFile(pathStr));
-   const buff = fs.readFileSync(process.argv[3]);
-    const [data] = decodeBencode(buff.toString("binary"));
-    const bencodeInfo = bencode(data.info);
-    const tmpBuff = Buffer.from(bencodeInfo, "binary");
-    const hash = calculateSHA1(tmpBuff);
-    console.log(`Info Hash: ${hash}`);
-    //console.log('Tracker URL:', data.announce);
-    //console.log('Length:', data.info.length);
+    const pathStr = process.argv[3];
+    const data = decode(readFile(pathStr));
+    
+    console.log('Tracker URL:', data.announce);
+    console.log('Length:', data.info.length);
     // info-hash
     //const infoHash = calculateInfoHash(data.info);
     //console.log('Info Hash:', infoHash);

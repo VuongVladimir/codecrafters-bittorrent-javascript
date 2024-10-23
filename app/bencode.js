@@ -1,4 +1,4 @@
-function decodeBencode(data) {
+function decode(data) {
     let index = 0;
 
     function consume(length) {
@@ -63,21 +63,22 @@ function decodeBencode(data) {
 }
 
 
-function bencode(input) {
-    if (Number.isFinite(input)) {
-        return `i${input}e`;
-    } else if (typeof input === "string") {
-        const s = Buffer.from(input, "binary");
-        return `${s.length}:` + s.toString("binary");
-    } else if (Array.isArray(input)) {
-        return `l${input.map((i) => bencode(i)).join("")}e`;
-    } else {
-        const d = Object.entries(input)
-            .sort(([k1], [k2]) => k1.localeCompare(k2))
-            .map(([k, v]) => `${bencode(k)}${bencode(v)}`);
-        return `d${d.join("")}e`;
+function encode(obj) {
+    if (typeof obj === 'string') {
+      return obj.length + ':' + obj;
+    } else if (typeof obj === 'number') {
+      return 'i' + obj + 'e';
+    } else if (Array.isArray(obj)) {
+      return 'l' + obj.map(encodeBencode).join('') + 'e';
+    } else if (typeof obj === 'object') {
+      let encoded = 'd';
+      for (const [key, value] of Object.entries(obj)) {
+        encoded += encode(key) + encode(value);
+      }
+      return encoded + 'e';
     }
-}
+    throw new Error('Unsupported data type');
+  }
 
-exports.decodeBencode = decodeBencode;
-exports.bencode = bencode;
+exports.decode = decode;
+exports.encode = encode;
