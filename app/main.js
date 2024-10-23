@@ -9,50 +9,6 @@ const { encode, decode } = require("./bencode");
 // - decodeBencode("5:hello") -> "hello"
 // - decodeBencode("10:hello12345") -> "hello12345"
 
-// function decodeBencode(bencodedValue) {
-//   // Check if the first character is a digit
-//   if (bencodedValue[0] === "l" && bencodedValue[bencodedValue.length - 1] === "e") {
-//     if (bencodedValue.length === 2) {
-//       return [];
-//     }
-//     if (bencodedValue[1] === "l" && bencodedValue[2] === "i" && bencodedValue[bencodedValue.length - 2] === "e") {
-//       const parts = bencodedValue.split(":");
-//       const string_length = parseInt(parts[0].substr(parts[0].length - 1, parts[0].length - 1), 10);
-//       const string_text = parts[1].substr(0, string_length);
-//       const number_text = parseInt(parts[0].substr(3, parts[0].length - 3), 10);
-//       const list = [];
-//       list.push(number_text);
-//       list.push(string_text);
-//       const return_list = [];
-//       return_list.push(list)
-//       return return_list;
-//     }
-//     const parts = bencodedValue.split(":");
-//     const string_length = parseInt(parts[0].substr(1, 1), 10);
-//     const string_text = parts[1].substr(0, string_length);
-//     const number_text = parseInt(parts[1].substr(string_length + 1, parts[1].length - 3), 10);
-//     const list = [];
-//     list.push(string_text);
-//     list.push(number_text);
-//     return list;
-//   }
-//   if (!isNaN(bencodedValue[0])) {
-//     const firstColonIndex = bencodedValue.indexOf(":");
-//     if (firstColonIndex === -1) {
-//       throw new Error("Invalid encoded value");
-//     }
-//     return bencodedValue.substr(firstColonIndex + 1);
-//   }
-//   else if (bencodedValue[0] === "i" && bencodedValue[bencodedValue.length - 1] === "e") {
-//     return +bencodedValue.slice(1, -1);
-//   }
-//   else {
-//     throw new Error("Only strings are supported at the moment");
-//   }
-// }
-
-
-
 const readFile = (pathStr) => {
   const d = fs.readFileSync(path.resolve('.', pathStr), { encoding: 'ascii', flag: 'r' }).trim();
   //console.log(d);
@@ -60,19 +16,11 @@ const readFile = (pathStr) => {
 }
 
 
-
-
 // // Function to calculate the SHA-1 hash
-// function calculateInfoHash(infoDict) {
-//   const bencodedInfo = encodeBencode(infoDict); // Re-bencode the info dictionary
-//   const sha1Hash = crypto.createHash('sha1').update(Buffer.from(bencodedInfo, 'binary')).digest('hex'); // Use binary buffer
-//   return sha1Hash;
-// }
-
-function calculateSHA1(inputString) {
-  const sha1Hash = crypto.createHash("sha1");
-  sha1Hash.update(inputString);
-  return sha1Hash.digest("hex");
+function calculateInfoHash(infoDict) {
+  const bencodedInfo = encode(infoDict); // Re-bencode the info dictionary
+  const sha1Hash = crypto.createHash('sha1').update(Buffer.from(bencodedInfo, 'binary')).digest('hex'); // Use binary buffer
+  return sha1Hash;
 }
 
 
@@ -97,8 +45,8 @@ function main() {
     console.log('Tracker URL:', data.announce);
     console.log('Length:', data.info.length);
     // info-hash
-    //const infoHash = calculateInfoHash(data.info);
-    //console.log('Info Hash:', infoHash);
+    const infoHash = calculateInfoHash(data.info);
+    console.log('Info Hash:', infoHash);
   }
   else {
     throw new Error(`Unknown command ${command}`);
