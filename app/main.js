@@ -1,5 +1,7 @@
 const process = require("process");
 const util = require("util");
+const fs = require('node:fs');
+const path = require('node:path');
 
 // Examples:
 // - decodeBencode("5:hello") -> "hello"
@@ -50,72 +52,73 @@ const util = require("util");
 function decodeBencode(data) {
   let index = 0;
 
-  // Helper function to consume a portion of the data
   function consume(length) {
-      const result = data.slice(index, index + length);
-      index += length;
-      return result;
+    const result = data.slice(index, index + length);
+    index += length;
+    return result;
   }
 
-  // Decoding a string (format: length:number:number of bytes)
   function decodeString() {
-      let colonIndex = data.indexOf(':', index);
-      let length = parseInt(data.slice(index, colonIndex), 10);
-      index = colonIndex + 1;
-      return consume(length);
+    let colonIndex = data.indexOf(':', index);
+    let length = parseInt(data.slice(index, colonIndex), 10);
+    index = colonIndex + 1;
+    return consume(length);
   }
 
-  // Decoding an integer (format: i<number>e)
   function decodeInteger() {
-      index++; // Skip 'i'
-      let endIndex = data.indexOf('e', index);
-      let integer = parseInt(data.slice(index, endIndex), 10);
-      index = endIndex + 1;
-      return integer;
+    index++; // Skip 'i'
+    let endIndex = data.indexOf('e', index);
+    let integer = parseInt(data.slice(index, endIndex), 10);
+    index = endIndex + 1;
+    return integer;
   }
 
-  // Decoding a list (format: l<values>e)
+
   function decodeList() {
-      index++; // Skip 'l'
-      const list = [];
-      while (data[index] !== 'e') {
-          list.push(decodeNext());
-      }
-      index++; // Skip 'e'
-      return list;
+    index++; // Skip 'l'
+    const list = [];
+    while (data[index] !== 'e') {
+      list.push(decodeNext());
+    }
+    index++; // Skip 'e'
+    return list;
   }
 
-  // Decoding a dictionary (format: d<key-value pairs>e)
   function decodeDictionary() {
-      index++; // Skip 'd'
-      const dictionary = {};
-      while (data[index] !== 'e') {
-          const key = decodeString();
-          const value = decodeNext();
-          dictionary[key] = value;
-      }
-      index++; // Skip 'e'
-      return dictionary;
+    index++; // Skip 'd'
+    const dictionary = {};
+    while (data[index] !== 'e') {
+      const key = decodeString();
+      const value = decodeNext();
+      dictionary[key] = value;
+    }
+    index++; // Skip 'e'
+    return dictionary;
   }
 
-  // Main function to decode next item (string, integer, list, or dictionary)
   function decodeNext() {
-      const char = data[index];
-      if (char === 'i') {
-          return decodeInteger();
-      } else if (char === 'l') {
-          return decodeList();
-      } else if (char === 'd') {
-          return decodeDictionary();
-      } else if (/\d/.test(char)) {
-          return decodeString();
-      } else {
-          throw new Error(`Unknown type: ${char}`);
-      }
+    const char = data[index];
+    if (char === 'i') {
+      return decodeInteger();
+    } else if (char === 'l') {
+      return decodeList();
+    } else if (char === 'd') {
+      return decodeDictionary();
+    } else if (/\d/.test(char)) {
+      return decodeString();
+    } else {
+      throw new Error(`Unknown type: ${char}`);
+    }
   }
 
   // Start decoding the data
   return decodeNext();
+}
+
+const readFile = (pathStr) => {
+  const d = fs.readFileSync(path.resolve('.', pathStr), { encoding: 'ascii', flag: 'r' }).trim();
+  console.log(d);
+  return d;
 }
 
 function main() {
@@ -131,7 +134,14 @@ function main() {
     // In JavaScript, there's no need to manually convert bytes to string for printing
     // because JS doesn't distinguish between bytes and strings in the same way Python does.
     console.log(JSON.stringify(decodeBencode(bencodedValue)));
-  } else {
+  }
+  else if (command === 'info') {
+    const pathStr = process.argv[3];
+    const data = decodeBencode(readFile(pathStr));
+    console.log('Tracker URL:', data.announce);
+    console.log('Length:', data.info.length);
+  }
+  else {
     throw new Error(`Unknown command ${command}`);
   }
 }
