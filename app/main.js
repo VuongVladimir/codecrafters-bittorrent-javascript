@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('crypto');
 const { encode, decode } = require("./bencode");
+const encodevip = require("./encode");
 
 // Examples:
 // - decodeBencode("5:hello") -> "hello"
@@ -46,7 +47,9 @@ function main() {
     //console.log('Tracker URL:', data.announce);
     //console.log('Length:', data.info.length);
     // info-hash
-    const infoHash = calculateInfoHash(data.info);
+    //const infoHash = calculateInfoHash(data.info);
+    const bencodedInfo = encodevip(data.info);
+    const infoHash = crypto.createHash('sha1').update(bencodedInfo).digest('hex');
     console.log('Info Hash:', infoHash);
   }
   else {
