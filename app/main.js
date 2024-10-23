@@ -3,6 +3,7 @@ const util = require("util");
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('crypto');
+const { bencode, decodeBencode } = require("./bencode");
 
 // Examples:
 // - decodeBencode("5:hello") -> "hello"
@@ -50,71 +51,7 @@ const crypto = require('crypto');
 //   }
 // }
 
-function decodeBencode(data) {
-  let index = 0;
 
-  function consume(length) {
-    const result = data.slice(index, index + length);
-    index += length;
-    return result;
-  }
-
-  function decodeString() {
-    let colonIndex = data.indexOf(':', index);
-    let length = parseInt(data.slice(index, colonIndex), 10);
-    index = colonIndex + 1;
-    return consume(length);
-  }
-
-  function decodeInteger() {
-    index++; // Skip 'i'
-    let endIndex = data.indexOf('e', index);
-    let integer = parseInt(data.slice(index, endIndex), 10);
-    index = endIndex + 1;
-    return integer;
-  }
-
-
-  function decodeList() {
-    index++; // Skip 'l'
-    const list = [];
-    while (data[index] !== 'e') {
-      list.push(decodeNext());
-    }
-    index++; // Skip 'e'
-    return list;
-  }
-
-  function decodeDictionary() {
-    index++; // Skip 'd'
-    const dictionary = {};
-    while (data[index] !== 'e') {
-      const key = decodeString();
-      const value = decodeNext();
-      dictionary[key] = value;
-    }
-    index++; // Skip 'e'
-    return dictionary;
-  }
-
-  function decodeNext() {
-    const char = data[index];
-    if (char === 'i') {
-      return decodeInteger();
-    } else if (char === 'l') {
-      return decodeList();
-    } else if (char === 'd') {
-      return decodeDictionary();
-    } else if (/\d/.test(char)) {
-      return decodeString();
-    } else {
-      throw new Error(`Unknown type: ${char}`);
-    }
-  }
-
-  // Start decoding the data
-  return decodeNext();
-}
 
 const readFile = (pathStr) => {
   const d = fs.readFileSync(path.resolve('.', pathStr), { encoding: 'ascii', flag: 'r' }).trim();
@@ -123,28 +60,34 @@ const readFile = (pathStr) => {
 }
 
 
-function encodeBencode(obj) {
-  if (typeof obj === 'string') {
-    return obj.length + ':' + obj;
-  } else if (typeof obj === 'number') {
-    return 'i' + obj + 'e';
-  } else if (Array.isArray(obj)) {
-    return 'l' + obj.map(encodeBencode).join('') + 'e';
-  } else if (typeof obj === 'object') {
-    let encoded = 'd';
-    for (const [key, value] of Object.entries(obj)) {
-      encoded += encodeBencode(key) + encodeBencode(value);
-    }
-    return encoded + 'e';
-  }
-  throw new Error('Unsupported data type');
-}
+// function encodeBencode(obj) {
+//   if (typeof obj === 'string') {
+//     return obj.length + ':' + obj;
+//   } else if (typeof obj === 'number') {
+//     return 'i' + obj + 'e';
+//   } else if (Array.isArray(obj)) {
+//     return 'l' + obj.map(encodeBencode).join('') + 'e';
+//   } else if (typeof obj === 'object') {
+//     let encoded = 'd';
+//     for (const [key, value] of Object.entries(obj)) {
+//       encoded += encodeBencode(key) + encodeBencode(value);
+//     }
+//     return encoded + 'e';
+//   }
+//   throw new Error('Unsupported data type');
+// }
 
-// Function to calculate the SHA-1 hash
-function calculateInfoHash(infoDict) {
-  const bencodedInfo = encodeBencode(infoDict); // Re-bencode the info dictionary
-  const sha1Hash = crypto.createHash('sha1').update(Buffer.from(bencodedInfo, 'binary')).digest('hex'); // Use binary buffer
-  return sha1Hash;
+// // Function to calculate the SHA-1 hash
+// function calculateInfoHash(infoDict) {
+//   const bencodedInfo = encodeBencode(infoDict); // Re-bencode the info dictionary
+//   const sha1Hash = crypto.createHash('sha1').update(Buffer.from(bencodedInfo, 'binary')).digest('hex'); // Use binary buffer
+//   return sha1Hash;
+// }
+
+function calculateSHA1(inputString) {
+  const sha1Hash = crypto.createHash("sha1");
+  sha1Hash.update(inputString);
+  return sha1Hash.digest("hex");
 }
 
 
@@ -165,11 +108,15 @@ function main() {
   else if (command === 'info') {
     const pathStr = process.argv[3];
     const data = decodeBencode(readFile(pathStr));
+    const bencodeInfo = bencode(data.info);
+    const tmpBuff = Buffer.from(bencodeInfo, "binary");
+    const hash = calculateSHA1(tmpBuff);
+    console.log(`Info Hash: ${hash}`);
     //console.log('Tracker URL:', data.announce);
     //console.log('Length:', data.info.length);
     // info-hash
-    const infoHash = calculateInfoHash(data.info);
-    console.log('Info Hash:', infoHash);
+    //const infoHash = calculateInfoHash(data.info);
+    //console.log('Info Hash:', infoHash);
   }
   else {
     throw new Error(`Unknown command ${command}`);
