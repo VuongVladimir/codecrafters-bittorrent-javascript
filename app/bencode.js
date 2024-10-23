@@ -65,20 +65,22 @@ function decode(data) {
 
 function encode(obj) {
     if (typeof obj === 'string') {
-      return obj.length + ':' + obj;
+        return obj.length + ':' + obj;
     } else if (typeof obj === 'number') {
-      return 'i' + obj + 'e';
+        return 'i' + obj + 'e';
     } else if (Array.isArray(obj)) {
-      return 'l' + obj.map(encodeBencode).join('') + 'e';
+        return 'l' + obj.map(encode).join('') + 'e';
     } else if (typeof obj === 'object') {
-      let encoded = 'd';
-      for (const [key, value] of Object.entries(obj)) {
-        encoded += encode(key) + encode(value);
-      }
-      return encoded + 'e';
+        let encoded = 'd';
+        const sortedKeys = Object.keys(obj).sort();  // Sắp xếp khóa theo thứ tự từ điển ASCII
+        for (const key of sortedKeys) {
+            encoded += encode(key) + encode(obj[key]);
+        }
+        return encoded + 'e';
     }
     throw new Error('Unsupported data type');
-  }
+}
+
 
 exports.decode = decode;
 exports.encode = encode;

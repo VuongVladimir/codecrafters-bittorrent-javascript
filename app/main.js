@@ -19,6 +19,7 @@ const readFile = (pathStr) => {
 // // Function to calculate the SHA-1 hash
 function calculateInfoHash(infoDict) {
   const bencodedInfo = encode(infoDict); // Re-bencode the info dictionary
+  console.log('Bencoded Info:', bencodedInfo);
   const sha1Hash = crypto.createHash('sha1').update(Buffer.from(bencodedInfo, 'binary')).digest('hex'); // Use binary buffer
   return sha1Hash;
 }
