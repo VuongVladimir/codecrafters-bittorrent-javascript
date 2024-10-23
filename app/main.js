@@ -164,8 +164,8 @@ function main() {
   else if (command === 'info') {
     const pathStr = process.argv[3];
     const data = decodeBencode(readFile(pathStr));
-    console.log('Tracker URL:', data.announce);
-    console.log('Length:', data.info.length);
+    //console.log('Tracker URL:', data.announce);
+    //console.log('Length:', data.info.length);
     // info-hash
     const infoHash = calculateInfoHash(data.info);
     console.log('Info Hash:', infoHash);
