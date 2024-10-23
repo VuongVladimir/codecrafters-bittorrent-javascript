@@ -6,6 +6,31 @@ const util = require("util");
 // - decodeBencode("10:hello12345") -> "hello12345"
 function decodeBencode(bencodedValue) {
   // Check if the first character is a digit
+  if (bencodedValue[0] === "l" && bencodedValue[bencodedValue.length - 1] === "e") {
+    if (bencodedValue.length === 2) {
+      return [];
+    }
+    if (bencodedValue[1] === "l" && bencodedValue[2] === "i" && bencodedValue[bencodedValue.length - 2] === "e") {
+      const parts = bencodedValue.split(":");
+      const string_length = parseInt(parts[0].substr(parts[0].length - 1, parts[0].length - 1), 10);
+      const string_text = parts[1].substr(0, string_length);
+      const number_text = parseInt(parts[0].substr(3, parts[0].length - 3), 10);
+      const list = [];
+      list.push(number_text);
+      list.push(string_text);
+      const return_list = [];
+      return_list.push(list)
+      return return_list;
+    }
+    const parts = bencodedValue.split(":");
+    const string_length = parseInt(parts[0].substr(1, 1), 10);
+    const string_text = parts[1].substr(0, string_length);
+    const number_text = parseInt(parts[1].substr(string_length + 1, parts[1].length - 3), 10);
+    const list = [];
+    list.push(string_text);
+    list.push(number_text);
+    return list;
+  }
   if (!isNaN(bencodedValue[0])) {
     const firstColonIndex = bencodedValue.indexOf(":");
     if (firstColonIndex === -1) {
