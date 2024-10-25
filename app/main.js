@@ -90,7 +90,8 @@ function getTrackerPeers(trackerURL, infoHash, fileLength) {
 function main() {
   const command = process.argv[2];
 
-  // Decode file input
+  if(command != "decode") {
+    // Decode file input
   const pathStr = process.argv[3];
   const fileContent = readFile(pathStr);
   let data;
@@ -100,7 +101,8 @@ function main() {
     console.error("Error decoding file content:", error);
     throw error;
   }
-  //
+  }
+  
 
   if (command === "decode") {
     const bencodedValue = process.argv[3];
