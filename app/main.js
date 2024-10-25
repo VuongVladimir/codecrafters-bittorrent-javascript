@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('crypto');
 const bencode = require('bencode');
-//const { decode } = require('./bencode');
+const { decode } = require('./bencode');
 
 
 const readFile = (pathStr) => {
@@ -33,8 +33,8 @@ function main() {
   if (command === "decode") {
     const bencodedValue = process.argv[3];
     try {
-      console.log(JSON.stringify(bencode.decode(bencodedValue)));
-
+      //console.log(JSON.stringify(bencode.decode(bencodedValue)));
+      console.log(JSON.stringify(decode(bencodedValue)));
     } catch (error) {
       console.error("Error decoding bencoded value:", error);
     }
