@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('crypto');
 const bencode = require('bencode');
+const { decode } = require('./bencode');
+
 
 const readFile = (pathStr) => {
   try {
@@ -31,7 +33,8 @@ function main() {
   if (command === "decode") {
     const bencodedValue = process.argv[3];
     try {
-      console.log(JSON.stringify(bencode.decode(bencodedValue)));
+      //console.log(JSON.stringify(bencode.decode(bencodedValue)));
+      console.log(JSON.stringify(decode(bencodedValue)));
     } catch (error) {
       console.error("Error decoding bencoded value:", error);
     }
@@ -39,6 +42,8 @@ function main() {
   else if (command === 'info') {
     const pathStr = process.argv[3];
     const fileContent = readFile(pathStr);
+    let dataTest = decode(fileContent);
+    
     let data;
     try {
       data = bencode.decode(fileContent);
@@ -48,6 +53,9 @@ function main() {
     }
     
     if (data && data.info) {
+      const trackerURL = String(data.announce);
+      console.log('Tracker URL:', trackerURL);
+    console.log('Length:', data.info.length);
       const infoHash = calculateInfoHash(data.info);
       console.log('Info Hash:', infoHash);
     } else {
