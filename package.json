@@ -11,5 +11,7 @@
     ],
     "author": "",
     "license": "MIT",
-    "dependencies": {}
+    "dependencies": {
+        "bencode": "^2.0.1"
+    }
 }
