@@ -89,12 +89,12 @@ function getTrackerPeers(trackerURL, infoHash, fileLength) {
 
 function main() {
   const command = process.argv[2];
-
+  let data;
   if(command != "decode") {
     // Decode file input
   const pathStr = process.argv[3];
   const fileContent = readFile(pathStr);
-  let data;
+  
   try {
     data = bencode.decode(fileContent);
   } catch (error) {
