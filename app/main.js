@@ -128,7 +128,7 @@ function performHandshake(peerAddress, infoHash, peerId) {
     if (data.length >= 68 && data.toString('utf8', 1, 20) === 'BitTorrent protocol') {
       clearTimeout(timeoutId);  
       const receivedPeerId = data.subarray(48, 68).toString('hex');
-      console.log(`Handshake successful. Peer ID: ${receivedPeerId}`);
+      console.log(`Peer ID: ${receivedPeerId}`);
       
     } else {
       console.log('Received invalid handshake response');
