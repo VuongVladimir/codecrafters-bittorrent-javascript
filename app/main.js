@@ -7,7 +7,12 @@ const bencode = require('bencode');
 const http = require('http');
 const { URL } = require('url');
 const { decode } = require('./bencode');
+const net = require('net');
 
+
+function generatePeerId() {
+  return crypto.randomBytes(20).toString('hex').slice(0, 20);
+}
 
 const readFile = (pathStr) => {
   try {
@@ -29,13 +34,12 @@ function calculateInfoHash(infoDict) {
   return sha1Hash;
 }
 
-const querystring = require('querystring');
-function getTrackerPeers(trackerURL, infoHash, fileLength) {
-  const peerId = crypto.randomBytes(20).toString('hex').slice(0, 20);
+
+function getTrackerPeers(trackerURL, infoHash, fileLength, peerId) {
   let infoHashUrlEncoded = "";
-    for (let i = 0; i < infoHash.length; i += 2) {
-      infoHashUrlEncoded += "%" + infoHash.substring(i, i + 2);
-    }
+  for (let i = 0; i < infoHash.length; i += 2) {
+    infoHashUrlEncoded += "%" + infoHash.substring(i, i + 2);
+  }
 
   const params = new URLSearchParams({
     peer_id: peerId,
@@ -49,7 +53,7 @@ function getTrackerPeers(trackerURL, infoHash, fileLength) {
   //const url = `${trackerURL}?${params.toString()}`;
 
   const url = trackerURL + "?info_hash=" + infoHashUrlEncoded + "&" + params.toString().toLowerCase();
- 
+
 
   http.get(url, async (response) => {
     let data = [];
@@ -58,7 +62,7 @@ function getTrackerPeers(trackerURL, infoHash, fileLength) {
       try {
         const decodedResponse = bencode.decode(Buffer.concat(data));
 
-        
+
         if (decodedResponse['failure reason']) {
           const failureReason = Buffer.from(decodedResponse['failure reason']).toString('utf-8');
           console.error("Tracker Failure Reason:", failureReason);
@@ -69,7 +73,7 @@ function getTrackerPeers(trackerURL, infoHash, fileLength) {
         if (!peers) {
           throw new Error("Peers field is missing in the tracker response");
         }
-      
+
         // Decode peers from compact format
         for (let i = 0; i < peers.length; i += 6) {
           const ip = `${peers[i]}.${peers[i + 1]}.${peers[i + 2]}.${peers[i + 3]}`;
@@ -87,22 +91,69 @@ function getTrackerPeers(trackerURL, infoHash, fileLength) {
 
 
 
+// Function to construct the handshake message
+function createHandshake(infoHash, peerId) {
+  const protocol = 'BitTorrent protocol';
+  const reserved = Buffer.alloc(8, 0); // 8 reserved bytes all set to zero
+
+  return Buffer.concat([
+    Buffer.from([protocol.length]),              // Convert protocol length to Buffer
+    Buffer.from(protocol, 'utf-8'),              // Convert protocol to Buffer
+    reserved,                                    // Reserved bytes
+    Buffer.from(infoHash, 'hex'),                // Convert infoHash to Buffer from hex
+    Buffer.from(peerId, 'hex')                   // Convert peerId to Buffer from hex
+  ]);
+}
+
+// Function to perform the handshake with the peer
+function performHandshake(peerAddress, infoHash, peerId) {
+  const [peerIP, peerPort] = peerAddress.split(':');
+  
+
+  const client = net.createConnection({ host: peerIP, port: peerPort }, () => {
+    console.log(`Connected to peer at ${peerIP}:${peerPort}`);
+
+    // Construct and send the handshake
+    const handshakeMessage = createHandshake(infoHash, peerId);
+    client.write(handshakeMessage);
+  });
+
+  client.on('data', (data) => {
+    // Read the peer's response and extract the peer ID (last 20 bytes)
+    const receivedPeerId = data.slice(48, 68).toString('hex');
+    console.log(`Peer ID: ${receivedPeerId}`);
+    client.end();
+  });
+
+  client.on('error', (error) => {
+    console.error("Connection error:", error);
+  });
+
+  client.on('end', () => {
+    console.log('Disconnected from peer');
+  });
+}
+
+
+
+
 function main() {
   const command = process.argv[2];
-  let data;
-  if(command != "decode") {
+  let dataTorrent;
+  const peerID = generatePeerId();
+  if (command != "decode") {
     // Decode file input
-  const pathStr = process.argv[3];
-  const fileContent = readFile(pathStr);
-  
-  try {
-    data = bencode.decode(fileContent);
-  } catch (error) {
-    console.error("Error decoding file content:", error);
-    throw error;
+    const pathStr = process.argv[3];
+    const fileContent = readFile(pathStr);
+
+    try {
+      dataTorrent = bencode.decode(fileContent);
+    } catch (error) {
+      console.error("Error decoding file content:", error);
+      throw error;
+    }
   }
-  }
-  
+
 
   if (command === "decode") {
     const bencodedValue = process.argv[3];
@@ -114,17 +165,17 @@ function main() {
     }
   }
   else if (command === 'info') {
-    if (data && data.info) {
-      const trackerURL = String(data.announce);
+    if (dataTorrent && dataTorrent.info) {
+      const trackerURL = String(dataTorrent.announce);
       console.log('Tracker URL:', trackerURL);
-      console.log('Length:', data.info.length);
-      const infoHash = calculateInfoHash(data.info);
+      console.log('Length:', dataTorrent.info.length);
+      const infoHash = calculateInfoHash(dataTorrent.info);
       console.log('Info Hash:', infoHash);
 
-      const pieceLength = data.info['piece length'];
+      const pieceLength = dataTorrent.info['piece length'];
       console.log("Piece Length:", pieceLength);
 
-      const piecesBuffer = data.info.pieces;
+      const piecesBuffer = dataTorrent.info.pieces;
       const pieces = [];
       for (let i = 0; i < piecesBuffer.length; i += 20) {
         pieces.push(piecesBuffer.slice(i, i + 20).toString('hex'));
@@ -138,10 +189,20 @@ function main() {
     }
   }
   else if (command == "peers") {
-    if (data) {
-      const trackerURL = String(data.announce);
-      const infoHash = calculateInfoHash(data.info);
-      getTrackerPeers(trackerURL, infoHash, data.info.length);
+    if (dataTorrent) {
+      const trackerURL = String(dataTorrent.announce);
+      const infoHash = calculateInfoHash(dataTorrent.info);
+      getTrackerPeers(trackerURL, infoHash, dataTorrent.info.length, peerID);
+    } else {
+      console.error("Invalid data structure, 'info' field missing.");
+    }
+
+  }
+  else if (command == "handshake") {
+    if (dataTorrent) {
+      const peerAddress = process.argv[4];
+      const infoHash = calculateInfoHash(dataTorrent.info);
+      performHandshake(peerAddress, infoHash, peerID);
     } else {
       console.error("Invalid data structure, 'info' field missing.");
     }
