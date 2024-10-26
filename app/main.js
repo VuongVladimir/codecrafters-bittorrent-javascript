@@ -97,11 +97,11 @@ function createHandshake(infoHash, peerId) {
   const reserved = Buffer.alloc(8, 0); // 8 reserved bytes all set to zero
 
   return Buffer.concat([
-    Buffer.from([protocol.length]),              // Convert protocol length to Buffer
-    Buffer.from(protocol, 'utf-8'),              // Convert protocol to Buffer
-    reserved,                                    // Reserved bytes
-    Buffer.from(infoHash, 'hex'),                // Convert infoHash to Buffer from hex
-    Buffer.from(peerId, 'hex')                   // Convert peerId to Buffer from hex
+    Buffer.from([protocol.length]),              
+    Buffer.from(protocol, 'utf-8'),              
+    reserved,                                    
+    Buffer.from(infoHash, 'hex'),                
+    Buffer.from(peerId, 'hex')                   
   ]);
 }
 
@@ -109,20 +109,29 @@ function createHandshake(infoHash, peerId) {
 function performHandshake(peerAddress, infoHash, peerId) {
   const [peerIP, peerPort] = peerAddress.split(':');
   
-
   const client = net.createConnection({ host: peerIP, port: peerPort }, () => {
     console.log(`Connected to peer at ${peerIP}:${peerPort}`);
 
     // Construct and send the handshake
     const handshakeMessage = createHandshake(infoHash, peerId);
     client.write(handshakeMessage);
+    
+    // Thêm timeout
+    setTimeout(() => {
+      console.log('Handshake timeout');
+      client.end();
+    }, 10000); // 10 seconds timeout
   });
 
   client.on('data', (data) => {
-    // Read the peer's response and extract the peer ID (last 20 bytes)
-    const receivedPeerId = data.slice(48, 68).toString('hex');
-    console.log(`Peer ID: ${receivedPeerId}`);
-    client.end();
+    // Kiểm tra xem dữ liệu nhận được có phải là handshake hợp lệ không
+    if (data.length >= 68 && data.toString('utf8', 1, 20) === 'BitTorrent protocol') {
+      const receivedPeerId = data.subarray(48, 68).toString('hex');
+      console.log(`Handshake successful. Peer ID: ${receivedPeerId}`);
+      client.end();
+    } else {
+      console.log('Received invalid handshake response');
+    }
   });
 
   client.on('error', (error) => {
