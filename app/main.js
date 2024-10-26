@@ -10,8 +10,11 @@ const { decode } = require('./bencode');
 const net = require('net');
 
 
+// function generatePeerId() {
+//   return crypto.randomBytes(20).toString('hex').slice(0, 20);
+// }
 function generatePeerId() {
-  return crypto.randomBytes(20).toString('hex').slice(0, 20);
+  return crypto.randomBytes(20);
 }
 
 const readFile = (pathStr) => {
@@ -124,7 +127,7 @@ function performHandshake(peerAddress, infoHash, peerId) {
   client.on('data', (data) => {
     if (data.length >= 68 && data.toString('utf8', 1, 20) === 'BitTorrent protocol') {
       clearTimeout(timeoutId);  
-      const receivedPeerId = data.subarray(data.length - 20).toString('hex');
+      const receivedPeerId = data.subarray(48, 68).toString('hex');
       console.log(`Handshake successful. Peer ID: ${receivedPeerId}`);
       
     } else {
