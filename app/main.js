@@ -44,8 +44,12 @@ function getTrackerPeers(trackerURL, infoHash, fileLength, peerId) {
     infoHashUrlEncoded += "%" + infoHash.substring(i, i + 2);
   }
 
+  let peerIdUrlEncoded = "";
+  for (let i = 0; i < peerId.length; i++) {
+    peerIdUrlEncoded += "%" + peerId[i].toString(16).padStart(2, '0');
+  }
+
   const params = new URLSearchParams({
-    peer_id: peerId.toString('hex'),
     port: 6881,
     uploaded: 0,
     downloaded: 0,
@@ -53,10 +57,7 @@ function getTrackerPeers(trackerURL, infoHash, fileLength, peerId) {
     compact: 1
   });
 
-  //const url = `${trackerURL}?${params.toString()}`;
-
-  const url = trackerURL + "?info_hash=" + infoHashUrlEncoded + "&" + params.toString().toLowerCase();
-
+  const url = `${trackerURL}?info_hash=${infoHashUrlEncoded}&peer_id=${peerIdUrlEncoded}&${params.toString()}`;
 
   http.get(url, async (response) => {
     let data = [];
