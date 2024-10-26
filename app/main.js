@@ -112,34 +112,32 @@ function performHandshake(peerAddress, infoHash, peerId) {
   const client = net.createConnection({ host: peerIP, port: peerPort }, () => {
     console.log(`Connected to peer at ${peerIP}:${peerPort}`);
 
-    // Construct and send the handshake
     const handshakeMessage = createHandshake(infoHash, peerId);
     client.write(handshakeMessage);
-    
-    // Thêm timeout
-    setTimeout(() => {
-      console.log('Handshake timeout');
-      client.end();
-    }, 10000); // 10 seconds timeout
   });
 
+  let timeoutId = setTimeout(() => {
+    console.log('Handshake timeout');
+    client.end();
+  }, 10000);
+
   client.on('data', (data) => {
-    // Kiểm tra xem dữ liệu nhận được có phải là handshake hợp lệ không
     if (data.length >= 68 && data.toString('utf8', 1, 20) === 'BitTorrent protocol') {
-      const receivedPeerId = data.subarray(48, 68).toString('hex');
+      clearTimeout(timeoutId);  
+      const receivedPeerId = data.subarray(data.length - 20).toString('hex');
       console.log(`Handshake successful. Peer ID: ${receivedPeerId}`);
-      client.end();
+      
     } else {
       console.log('Received invalid handshake response');
     }
   });
 
-  client.on('error', (error) => {
-    console.error("Connection error:", error);
-  });
-
   client.on('end', () => {
     console.log('Disconnected from peer');
+  });
+
+  client.on('error', (error) => {
+    console.error("Connection error:", error);
   });
 }
 
