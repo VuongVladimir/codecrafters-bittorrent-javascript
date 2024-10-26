@@ -45,7 +45,7 @@ function getTrackerPeers(trackerURL, infoHash, fileLength, peerId) {
   }
 
   const params = new URLSearchParams({
-    peer_id: peerId,
+    peer_id: peerId.toString('hex'),
     port: 6881,
     uploaded: 0,
     downloaded: 0,
