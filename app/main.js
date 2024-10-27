@@ -177,7 +177,7 @@ async function downloadPiece(peerAddress, infoHash, peerId, pieceIndex, pieceLen
             if (data.length < messageLength + 4) break;
 
             const messageId = data[4];
-            const payload = data.slice(5, messageLength + 4);
+            const payload = data.subarray(5, messageLength + 4);
 
             switch (messageId) {
               case 5: // bitfield
@@ -191,7 +191,7 @@ async function downloadPiece(peerAddress, infoHash, peerId, pieceIndex, pieceLen
               case 7: // piece
                 const index = payload.readUInt32BE(0);
                 const begin = payload.readUInt32BE(4);
-                const block = payload.slice(8);
+                const block = payload.subarray(8);
                 block.copy(pieceData, begin);
                 receivedLength += block.length;
                 if (receivedLength === pieceLength) {
@@ -207,7 +207,7 @@ async function downloadPiece(peerAddress, infoHash, peerId, pieceIndex, pieceLen
                 break;
             }
 
-            data = data.slice(messageLength + 4);
+            data = data.subarray(messageLength + 4);
           }
         }
       });
