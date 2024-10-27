@@ -204,63 +204,64 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
       console.log(`Sent request for block: begin=${begin}, length=${length}`);
     }
 
+    let buffer = Buffer.alloc(0);
+
     client.on('data', (data) => {
       console.log(`Received data of length: ${data.length}`);
-      if (!handshakeReceived) {
-        if (data.length >= 68 && data.toString('utf8', 1, 20) === 'BitTorrent protocol') {
-          handshakeReceived = true;
-          console.log('Handshake received');
-          // Send interested message immediately after handshake
-          const interestedMsg = Buffer.from([0, 0, 0, 1, 2]);
-          client.write(interestedMsg);
-          console.log('Sent interested message');
+      buffer = Buffer.concat([buffer, data]);
+
+      while (buffer.length >= 4) {
+        if (!handshakeReceived) {
+          if (buffer.length >= 68 && buffer.toString('utf8', 1, 20) === 'BitTorrent protocol') {
+            handshakeReceived = true;
+            console.log('Handshake received');
+            buffer = buffer.slice(68);
+            const interestedMsg = Buffer.from([0, 0, 0, 1, 2]);
+            client.write(interestedMsg);
+            console.log('Sent interested message');
+          } else {
+            break;
+          }
         } else {
-          console.log('Invalid handshake received');
-          return;
+          const messageLength = buffer.readUInt32BE(0);
+          if (messageLength === 0) {
+            console.log('Received keep-alive message');
+            buffer = buffer.slice(4);
+            continue;
+          }
+          if (buffer.length < 4 + messageLength) break;
+
+          const messageId = buffer.readUInt8(4);
+          const payload = buffer.slice(5, 4 + messageLength);
+
+          console.log(`Received message: id=${messageId}, length=${messageLength}`);
+
+          switch (messageId) {
+            case 0: // Choke
+              console.log('Choke received');
+              break;
+            case 1: // Unchoke
+              unchokeReceived = true;
+              console.log('Unchoke received');
+              requestPieces();
+              break;
+            case 4: // Have
+              const havePieceIndex = payload.readUInt32BE(0);
+              console.log(`Have message for piece ${havePieceIndex}`);
+              break;
+            case 5: // Bitfield
+              bitfieldReceived = true;
+              console.log('Bitfield received');
+              break;
+            case 7: // Piece
+              handlePieceMessage(payload);
+              break;
+            default:
+              console.log(`Unhandled message type: ${messageId}`);
+          }
+
+          buffer = buffer.slice(4 + messageLength);
         }
-      }
-
-      let offset = 0;
-      while (offset < data.length) {
-        if (data.length - offset < 4) break;
-        const messageLength = data.readUInt32BE(offset);
-        if (messageLength === 0) {
-          console.log('Received keep-alive message');
-          offset += 4;
-          continue;
-        }
-        if (data.length - offset < 4 + messageLength) break;
-
-        const messageId = data.readUInt8(offset + 4);
-        const payload = data.slice(offset + 5, offset + 4 + messageLength);
-
-        console.log(`Received message: id=${messageId}, length=${messageLength}`);
-
-        switch (messageId) {
-          case 0: // Choke
-            console.log('Choke received');
-            break;
-          case 1: // Unchoke
-            unchokeReceived = true;
-            console.log('Unchoke received');
-            requestPieces();
-            break;
-          case 4: // Have
-            const pieceIndex = payload.readUInt32BE(0);
-            console.log(`Have message for piece ${pieceIndex}`);
-            break;
-          case 5: // Bitfield
-            bitfieldReceived = true;
-            console.log('Bitfield received');
-            break;
-          case 7: // Piece
-            handlePieceMessage(payload);
-            break;
-          default:
-            console.log(`Unhandled message type: ${messageId}`);
-        }
-
-        offset += 4 + messageLength;
       }
     });
 
@@ -287,6 +288,12 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
         const expectedHash = torrentData.info.pieces.slice(pieceIndex * 20, pieceIndex * 20 + 20).toString('hex');
 
         if (pieceHash === expectedHash) {
+          // Ensure the directory exists
+          const dir = path.dirname(outputPath);
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+          }
+
           fs.writeFileSync(outputPath, pieceData);
           console.log(`Piece ${pieceIndex} downloaded successfully`);
           client.destroy();
