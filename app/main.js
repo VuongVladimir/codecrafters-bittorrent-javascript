@@ -169,6 +169,9 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
   return new Promise((resolve, reject) => {
     const client = new net.Socket();
 
+    // Add a connection timeout
+    client.setTimeout(15000); // 15 seconds timeout
+
     client.connect(peer.port, peer.ip, () => {
       console.log(`Connected to peer ${peer.ip}:${peer.port}`);
       const handshakeMsg = createHandshake(infoHash, peerId.toString('hex'));
@@ -197,6 +200,9 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
     }
 
     client.on('data', (data) => {
+      // Reset the timeout on each data received
+      client.setTimeout(15000);
+
       console.log(`Received data of length: ${data.length}`);
       if (!handshakeReceived) {
         if (data.length >= 68 && data.toString('utf8', 1, 20) === 'BitTorrent protocol') {
@@ -271,6 +277,12 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
       }
     });
 
+    client.on('timeout', () => {
+      console.log('Connection timed out');
+      client.destroy();
+      reject(new Error('Connection timed out'));
+    });
+
     client.on('error', (error) => {
       console.error('Connection error:', error);
       reject(error);
@@ -283,13 +295,13 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
       }
     });
 
-    // Add a timeout to prevent hanging indefinitely
-    setTimeout(() => {
-      if (receivedLength !== currentPieceLength) {
-        client.destroy();
-        reject(new Error('Download timeout'));
-      }
-    }, 30000); // 30 seconds timeout
+    // Remove or increase the global timeout
+    // setTimeout(() => {
+    //   if (receivedLength !== currentPieceLength) {
+    //     client.destroy();
+    //     reject(new Error('Download timeout'));
+    //   }
+    // }, 30000); // 30 seconds timeout
   });
 }
 
