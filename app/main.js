@@ -170,6 +170,36 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
   return new Promise((resolve, reject) => {
     const client = new net.Socket();
     let keepAliveInterval;
+    let overallTimeout;
+
+    function cleanup() {
+      if (client) {
+        client.destroy();
+      }
+      clearInterval(keepAliveInterval);
+      clearTimeout(overallTimeout);
+    }
+
+    // Chỉ giữ một event handler cho 'close'
+    client.on('close', () => {
+      console.log('Connection closed');
+      cleanup();
+      if (receivedLength !== currentPieceLength && !client.destroyed) {
+        reject(new Error(`Incomplete download: received ${receivedLength} out of ${currentPieceLength} bytes`));
+      }
+    });
+
+    client.on('error', (error) => {
+      console.error('Connection error:', error);
+      cleanup();
+      reject(error);
+    });
+
+    client.on('timeout', () => {
+      console.error('Connection timed out');
+      cleanup();
+      reject(new Error('Connection timed out'));
+    });
 
     client.setTimeout(60000); // 60 seconds timeout
 
@@ -289,18 +319,12 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
         const expectedHash = torrentData.info.pieces.slice(pieceIndex * 20, pieceIndex * 20 + 20).toString('hex');
 
         if (pieceHash === expectedHash) {
-          // Ensure the directory exists
-          const dir = path.dirname(outputPath);
-          if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-          }
-
           fs.writeFileSync(outputPath, pieceData);
           console.log(`Piece ${pieceIndex} downloaded successfully`);
-          client.destroy();
-          clearInterval(keepAliveInterval);
+          cleanup(); // Call cleanup before resolving
           resolve();
         } else {
+          cleanup(); // Call cleanup before rejecting
           reject(new Error(`Piece ${pieceIndex} hash mismatch`));
         }
       } else if (requestsSent * blockSize < currentPieceLength) {
@@ -322,7 +346,7 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
     });
 
     // Increase timeout
-    const overallTimeout = setTimeout(() => {
+    overallTimeout = setTimeout(() => {
       if (receivedLength !== currentPieceLength) {
         client.destroy();
         reject(new Error('Download timeout'));
@@ -333,6 +357,26 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
       console.log('Connection closed');
       clearInterval(keepAliveInterval);
       clearTimeout(overallTimeout);
+      if (receivedLength !== currentPieceLength) {
+        reject(new Error(`Incomplete download: received ${receivedLength} out of ${currentPieceLength} bytes`));
+      }
+    });
+
+    client.on('error', (error) => {
+      console.error('Connection error:', error);
+      cleanup();
+      reject(error);
+    });
+
+    client.on('timeout', () => {
+      console.error('Connection timed out');
+      cleanup();
+      reject(new Error('Connection timed out'));
+    });
+
+    client.on('close', () => {
+      console.log('Connection closed');
+      cleanup();
       if (receivedLength !== currentPieceLength) {
         reject(new Error(`Incomplete download: received ${receivedLength} out of ${currentPieceLength} bytes`));
       }
@@ -411,24 +455,24 @@ async function downloadFile(torrentFile, outputPath, maxConnections = 5) {
   console.log(`Starting download with ${actualConnections} connections`);
 
   const downloadTimeout = 30 * 60 * 1000; // 30 minutes
+  let progressInterval;
+  let downloadTimeoutId;
+  
   const downloadPromise = new Promise(async (resolve, reject) => {
     try {
       const workers = peers.slice(0, actualConnections).map(peer => 
         downloadWorker(peer, torrentFile, torrentData, infoHash, peerId, workQueue, downloadedPieces)
       );
       
-      // Add progress monitoring
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         const progress = (workQueue.completedPieces.size / totalPieces) * 100;
         console.log(`Download progress: ${progress.toFixed(2)}%`);
       }, 5000);
 
       try {
         await Promise.all(workers);
+      } finally {
         clearInterval(progressInterval);
-      } catch (error) {
-        clearInterval(progressInterval);
-        throw error;
       }
 
       if (downloadedPieces.size !== totalPieces) {
@@ -452,20 +496,26 @@ async function downloadFile(torrentFile, outputPath, maxConnections = 5) {
       console.log(`Download completed: ${outputPath}`);
       resolve();
     } catch (error) {
+      clearInterval(progressInterval);
       reject(error);
     }
   });
 
   try {
-    await Promise.race([
-      downloadPromise,
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Download timeout')), downloadTimeout)
-      )
-    ]);
+    const timeoutPromise = new Promise((_, reject) => {
+      downloadTimeoutId = setTimeout(() => {
+        clearInterval(progressInterval);
+        reject(new Error('Download timeout'));
+      }, downloadTimeout);
+    });
+
+    await Promise.race([downloadPromise, timeoutPromise]);
   } catch (error) {
+    clearInterval(progressInterval);
     console.error("Download failed:", error);
     throw error;
+  } finally {
+    clearTimeout(downloadTimeoutId);
   }
 }
 
