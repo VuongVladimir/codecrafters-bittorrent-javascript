@@ -8,6 +8,7 @@ const http = require('http');
 const { URL } = require('url');
 const { decode } = require('./bencode');
 const net = require('net');
+const os = require('os');
 
 
 function generatePeerId() {
@@ -339,6 +340,187 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
   });
 }
 
+class WorkQueue {
+  constructor(totalPieces) {
+    this.pendingPieces = new Set([...Array(totalPieces).keys()]);
+    this.inProgressPieces = new Set();
+    this.completedPieces = new Set();
+    this.totalPieces = totalPieces;
+    this.lastProgressUpdate = Date.now();
+  }
+
+  getNextPiece() {
+    // Check for stalled downloads
+    const now = Date.now();
+    if (now - this.lastProgressUpdate > 5 * 60 * 1000) { // 5 minutes
+      console.warn('No progress detected for 5 minutes, possible stall');
+    }
+    
+    if (this.pendingPieces.size === 0 && 
+        this.inProgressPieces.size === 0 && 
+        this.completedPieces.size < this.totalPieces) {
+      throw new Error('Download deadlock detected');
+    }
+    
+    for (const piece of this.pendingPieces) {
+      this.pendingPieces.delete(piece);
+      this.inProgressPieces.add(piece);
+      return piece;
+    }
+    return null;
+  }
+
+  markPieceComplete(pieceIndex) {
+    this.inProgressPieces.delete(pieceIndex);
+    this.completedPieces.add(pieceIndex);
+    this.lastProgressUpdate = Date.now();
+  }
+
+  markPieceFailed(pieceIndex) {
+    this.inProgressPieces.delete(pieceIndex);
+    if (!this.completedPieces.has(pieceIndex)) {
+      this.pendingPieces.add(pieceIndex);
+    }
+  }
+
+  isComplete() {
+    return this.completedPieces.size === this.totalPieces;
+  }
+}
+
+async function downloadFile(torrentFile, outputPath, maxConnections = 5) {
+  const fileContent = readFile(torrentFile);
+  const torrentData = bencode.decode(fileContent);
+  const fileLength = torrentData.info.length;
+  const pieceLength = torrentData.info['piece length'];
+  const totalPieces = Math.ceil(fileLength / pieceLength);
+  
+  console.log(`Starting download of ${totalPieces} pieces`);
+  
+  const workQueue = new WorkQueue(totalPieces);
+  const downloadedPieces = new Map();
+  
+  const infoHash = calculateInfoHash(torrentData.info);
+  const peerId = generatePeerId();
+  const trackerURL = String(torrentData.announce);
+  
+  const peers = await getTrackerPeers(trackerURL, infoHash, fileLength, peerId);
+  if (peers.length === 0) throw new Error("No peers available");
+
+  const actualConnections = Math.min(peers.length, maxConnections);
+  console.log(`Starting download with ${actualConnections} connections`);
+
+  const downloadTimeout = 30 * 60 * 1000; // 30 minutes
+  const downloadPromise = new Promise(async (resolve, reject) => {
+    try {
+      const workers = peers.slice(0, actualConnections).map(peer => 
+        downloadWorker(peer, torrentFile, torrentData, infoHash, peerId, workQueue, downloadedPieces)
+      );
+      
+      // Add progress monitoring
+      const progressInterval = setInterval(() => {
+        const progress = (workQueue.completedPieces.size / totalPieces) * 100;
+        console.log(`Download progress: ${progress.toFixed(2)}%`);
+      }, 5000);
+
+      try {
+        await Promise.all(workers);
+        clearInterval(progressInterval);
+      } catch (error) {
+        clearInterval(progressInterval);
+        throw error;
+      }
+
+      if (downloadedPieces.size !== totalPieces) {
+        throw new Error(`Download incomplete: ${downloadedPieces.size}/${totalPieces} pieces downloaded`);
+      }
+      
+      console.log('All pieces downloaded, assembling file...');
+      
+      const finalBuffer = Buffer.concat(
+        [...downloadedPieces.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([_, data]) => data)
+      );
+
+      const dir = path.dirname(outputPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      fs.writeFileSync(outputPath, finalBuffer);
+      console.log(`Download completed: ${outputPath}`);
+      resolve();
+    } catch (error) {
+      reject(error);
+    }
+  });
+
+  try {
+    await Promise.race([
+      downloadPromise,
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Download timeout')), downloadTimeout)
+      )
+    ]);
+  } catch (error) {
+    console.error("Download failed:", error);
+    throw error;
+  }
+}
+
+async function downloadWorker(peer, torrentFile, torrentData, infoHash, peerId, workQueue, downloadedPieces) {
+  const maxRetries = 3;
+  const maxRetriesPerPiece = new Map(); // Track retries per piece
+  
+  while (!workQueue.isComplete()) {
+    const pieceIndex = workQueue.getNextPiece();
+    if (pieceIndex === null) {
+      console.log('No more pieces to download');
+      break;
+    }
+
+    // Get retry count for this piece
+    const retryCount = maxRetriesPerPiece.get(pieceIndex) || 0;
+    if (retryCount >= maxRetries) {
+      console.error(`Max retries reached for piece ${pieceIndex}, marking as failed`);
+      workQueue.markPieceFailed(pieceIndex);
+      continue;
+    }
+
+    try {
+      const tempPath = path.join(os.tmpdir(), `piece_${pieceIndex}_${Date.now()}_${Math.random()}`);
+      
+      console.log(`Worker downloading piece ${pieceIndex} (attempt ${retryCount + 1}/${maxRetries})`);
+      await downloadPiece(torrentFile, pieceIndex, tempPath);
+      
+      if (fs.existsSync(tempPath)) {
+        const pieceData = fs.readFileSync(tempPath);
+        downloadedPieces.set(pieceIndex, pieceData);
+        
+        try {
+          fs.unlinkSync(tempPath);
+        } catch (err) {
+          console.warn(`Failed to delete temp file ${tempPath}:`, err);
+        }
+        
+        workQueue.markPieceComplete(pieceIndex);
+        console.log(`Piece ${pieceIndex} downloaded successfully`);
+        maxRetriesPerPiece.delete(pieceIndex); // Reset retries on success
+      } else {
+        throw new Error(`Temp file ${tempPath} not found`);
+      }
+    } catch (error) {
+      console.error(`Failed to download piece ${pieceIndex}:`, error);
+      maxRetriesPerPiece.set(pieceIndex, retryCount + 1);
+      workQueue.markPieceFailed(pieceIndex);
+      
+      // Add delay between retries
+      await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+    }
+  }
+}
+
 async function main() {
   const command = process.argv[2];
   let dataTorrent;
@@ -430,6 +612,16 @@ async function main() {
       console.log(`Piece ${pieceIndex} downloaded to ${outputPath}`);
     } catch (error) {
       console.error('Error downloading piece:', error);
+    }
+  }
+  else if(command == "download") {
+    const outputPath = process.argv[4];
+    const torrentFile = process.argv[5];
+    try {
+      await downloadFile(torrentFile, outputPath);
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      process.exit(1);
     }
   }
   else {
