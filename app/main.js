@@ -168,14 +168,19 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
 
   return new Promise((resolve, reject) => {
     const client = new net.Socket();
+    let keepAliveInterval;
 
-    // Add a connection timeout
-    client.setTimeout(15000); // 15 seconds timeout
+    client.setTimeout(60000); // 60 seconds timeout
 
     client.connect(peer.port, peer.ip, () => {
       console.log(`Connected to peer ${peer.ip}:${peer.port}`);
       const handshakeMsg = createHandshake(infoHash, peerId.toString('hex'));
       client.write(handshakeMsg);
+
+      // Set up keep-alive messages
+      keepAliveInterval = setInterval(() => {
+        client.write(Buffer.alloc(4));
+      }, 120000); // Send keep-alive every 2 minutes
     });
 
     let handshakeReceived = false;
@@ -200,74 +205,56 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
     }
 
     client.on('data', (data) => {
-      // Reset the timeout on each data received
-      client.setTimeout(15000);
-
       console.log(`Received data of length: ${data.length}`);
       if (!handshakeReceived) {
         if (data.length >= 68 && data.toString('utf8', 1, 20) === 'BitTorrent protocol') {
           handshakeReceived = true;
           console.log('Handshake received');
+          // Send interested message immediately after handshake
+          const interestedMsg = Buffer.from([0, 0, 0, 1, 2]);
+          client.write(interestedMsg);
+          console.log('Sent interested message');
         } else {
           console.log('Invalid handshake received');
+          return;
         }
-        return;
       }
 
       let offset = 0;
       while (offset < data.length) {
         if (data.length - offset < 4) break;
         const messageLength = data.readUInt32BE(offset);
+        if (messageLength === 0) {
+          console.log('Received keep-alive message');
+          offset += 4;
+          continue;
+        }
         if (data.length - offset < 4 + messageLength) break;
 
-        const messageId = messageLength > 0 ? data.readUInt8(offset + 4) : -1;
+        const messageId = data.readUInt8(offset + 4);
         const payload = data.slice(offset + 5, offset + 4 + messageLength);
 
         console.log(`Received message: id=${messageId}, length=${messageLength}`);
 
         switch (messageId) {
-          case 5: // Bitfield
-            bitfieldReceived = true;
-            console.log('Bitfield received');
-            const interestedMsg = Buffer.from([0, 0, 0, 1, 2]);
-            client.write(interestedMsg);
-            console.log('Sent interested message');
+          case 0: // Choke
+            console.log('Choke received');
             break;
           case 1: // Unchoke
             unchokeReceived = true;
             console.log('Unchoke received');
-            for (let i = 0; i < 5 && requestsSent * blockSize < currentPieceLength; i++) {
-              const begin = requestsSent * blockSize;
-              const length = Math.min(blockSize, currentPieceLength - begin);
-              sendRequest(begin, length);
-            }
+            requestPieces();
+            break;
+          case 4: // Have
+            const pieceIndex = payload.readUInt32BE(0);
+            console.log(`Have message for piece ${pieceIndex}`);
+            break;
+          case 5: // Bitfield
+            bitfieldReceived = true;
+            console.log('Bitfield received');
             break;
           case 7: // Piece
-            const blockIndex = payload.readUInt32BE(0);
-            const blockBegin = payload.readUInt32BE(4);
-            const blockData = payload.slice(8);
-            blockData.copy(pieceData, blockBegin);
-            receivedLength += blockData.length;
-            blocksReceived++;
-            console.log(`Received block: index=${blockIndex}, begin=${blockBegin}, length=${blockData.length}`);
-
-            if (receivedLength === currentPieceLength) {
-              const pieceHash = crypto.createHash('sha1').update(pieceData).digest('hex');
-              const expectedHash = torrentData.info.pieces.slice(pieceIndex * 20, pieceIndex * 20 + 20).toString('hex');
-
-              if (pieceHash === expectedHash) {
-                fs.writeFileSync(outputPath, pieceData);
-                console.log(`Piece ${pieceIndex} downloaded successfully`);
-                client.destroy();
-                resolve();
-              } else {
-                reject(new Error(`Piece ${pieceIndex} hash mismatch`));
-              }
-            } else if (requestsSent * blockSize < currentPieceLength) {
-              const begin = requestsSent * blockSize;
-              const length = Math.min(blockSize, currentPieceLength - begin);
-              sendRequest(begin, length);
-            }
+            handlePieceMessage(payload);
             break;
           default:
             console.log(`Unhandled message type: ${messageId}`);
@@ -277,8 +264,46 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
       }
     });
 
+    function requestPieces() {
+      while (requestsSent * blockSize < currentPieceLength) {
+        const begin = requestsSent * blockSize;
+        const length = Math.min(blockSize, currentPieceLength - begin);
+        sendRequest(begin, length);
+      }
+    }
+
+    function handlePieceMessage(payload) {
+      const blockIndex = payload.readUInt32BE(0);
+      const blockBegin = payload.readUInt32BE(4);
+      const blockData = payload.slice(8);
+      blockData.copy(pieceData, blockBegin);
+      receivedLength += blockData.length;
+      blocksReceived++;
+      console.log(`Received block: index=${blockIndex}, begin=${blockBegin}, length=${blockData.length}`);
+      console.log(`Download progress: ${(receivedLength / currentPieceLength * 100).toFixed(2)}%`);
+
+      if (receivedLength === currentPieceLength) {
+        const pieceHash = crypto.createHash('sha1').update(pieceData).digest('hex');
+        const expectedHash = torrentData.info.pieces.slice(pieceIndex * 20, pieceIndex * 20 + 20).toString('hex');
+
+        if (pieceHash === expectedHash) {
+          fs.writeFileSync(outputPath, pieceData);
+          console.log(`Piece ${pieceIndex} downloaded successfully`);
+          client.destroy();
+          clearInterval(keepAliveInterval);
+          resolve();
+        } else {
+          reject(new Error(`Piece ${pieceIndex} hash mismatch`));
+        }
+      } else if (requestsSent * blockSize < currentPieceLength) {
+        const begin = requestsSent * blockSize;
+        const length = Math.min(blockSize, currentPieceLength - begin);
+        sendRequest(begin, length);
+      }
+    }
+
     client.on('timeout', () => {
-      console.log('Connection timed out');
+      console.error('Connection timed out');
       client.destroy();
       reject(new Error('Connection timed out'));
     });
@@ -288,20 +313,22 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
       reject(error);
     });
 
+    // Increase timeout
+    const overallTimeout = setTimeout(() => {
+      if (receivedLength !== currentPieceLength) {
+        client.destroy();
+        reject(new Error('Download timeout'));
+      }
+    }, 300000); // 5 minutes timeout
+
     client.on('close', () => {
       console.log('Connection closed');
+      clearInterval(keepAliveInterval);
+      clearTimeout(overallTimeout);
       if (receivedLength !== currentPieceLength) {
         reject(new Error(`Incomplete download: received ${receivedLength} out of ${currentPieceLength} bytes`));
       }
     });
-
-    // Remove or increase the global timeout
-    // setTimeout(() => {
-    //   if (receivedLength !== currentPieceLength) {
-    //     client.destroy();
-    //     reject(new Error('Download timeout'));
-    //   }
-    // }, 30000); // 30 seconds timeout
   });
 }
 
@@ -404,3 +431,4 @@ async function main() {
 }
 
 main();
+
