@@ -171,7 +171,7 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
 
     client.connect(peer.port, peer.ip, () => {
       console.log(`Connected to peer ${peer.ip}:${peer.port}`);
-      const handshakeMsg = createHandshake(infoHash, peerId);
+      const handshakeMsg = createHandshake(infoHash, peerId.toString('hex'));
       client.write(handshakeMsg);
     });
 
@@ -193,13 +193,17 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
       requestMsg.writeUInt32BE(length, 13);
       client.write(requestMsg);
       requestsSent++;
+      console.log(`Sent request for block: begin=${begin}, length=${length}`);
     }
 
     client.on('data', (data) => {
+      console.log(`Received data of length: ${data.length}`);
       if (!handshakeReceived) {
         if (data.length >= 68 && data.toString('utf8', 1, 20) === 'BitTorrent protocol') {
           handshakeReceived = true;
           console.log('Handshake received');
+        } else {
+          console.log('Invalid handshake received');
         }
         return;
       }
@@ -213,12 +217,15 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
         const messageId = messageLength > 0 ? data.readUInt8(offset + 4) : -1;
         const payload = data.slice(offset + 5, offset + 4 + messageLength);
 
+        console.log(`Received message: id=${messageId}, length=${messageLength}`);
+
         switch (messageId) {
           case 5: // Bitfield
             bitfieldReceived = true;
             console.log('Bitfield received');
             const interestedMsg = Buffer.from([0, 0, 0, 1, 2]);
             client.write(interestedMsg);
+            console.log('Sent interested message');
             break;
           case 1: // Unchoke
             unchokeReceived = true;
@@ -236,6 +243,7 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
             blockData.copy(pieceData, blockBegin);
             receivedLength += blockData.length;
             blocksReceived++;
+            console.log(`Received block: index=${blockIndex}, begin=${blockBegin}, length=${blockData.length}`);
 
             if (receivedLength === currentPieceLength) {
               const pieceHash = crypto.createHash('sha1').update(pieceData).digest('hex');
@@ -255,6 +263,8 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
               sendRequest(begin, length);
             }
             break;
+          default:
+            console.log(`Unhandled message type: ${messageId}`);
         }
 
         offset += 4 + messageLength;
@@ -272,6 +282,14 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
         reject(new Error(`Incomplete download: received ${receivedLength} out of ${currentPieceLength} bytes`));
       }
     });
+
+    // Add a timeout to prevent hanging indefinitely
+    setTimeout(() => {
+      if (receivedLength !== currentPieceLength) {
+        client.destroy();
+        reject(new Error('Download timeout'));
+      }
+    }, 30000); // 30 seconds timeout
   });
 }
 
