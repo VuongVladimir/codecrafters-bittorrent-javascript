@@ -102,18 +102,18 @@ function createHandshake(infoHash, peerId) {
   const reserved = Buffer.alloc(8, 0); // 8 reserved bytes all set to zero
 
   return Buffer.concat([
-    Buffer.from([protocol.length]),              
-    Buffer.from(protocol, 'utf-8'),              
-    reserved,                                    
-    Buffer.from(infoHash, 'hex'),                
-    Buffer.from(peerId, 'hex')                   
+    Buffer.from([protocol.length]),
+    Buffer.from(protocol, 'utf-8'),
+    reserved,
+    Buffer.from(infoHash, 'hex'),
+    Buffer.from(peerId, 'hex')
   ]);
 }
 
 // Function to perform the handshake with the peer
 function performHandshake(peerAddress, infoHash, peerId) {
   const [peerIP, peerPort] = peerAddress.split(':');
-  
+
   const client = net.createConnection({ host: peerIP, port: peerPort }, () => {
     console.log(`Connected to peer at ${peerIP}:${peerPort}`);
 
@@ -128,10 +128,10 @@ function performHandshake(peerAddress, infoHash, peerId) {
 
   client.on('data', (data) => {
     if (data.length >= 68 && data.toString('utf8', 1, 20) === 'BitTorrent protocol') {
-      clearTimeout(timeoutId);  
+      clearTimeout(timeoutId);
       const receivedPeerId = data.subarray(48, 68).toString('hex');
       console.log(`Peer ID: ${receivedPeerId}`);
-      
+
     } else {
       console.log('Received invalid handshake response');
     }
@@ -149,21 +149,11 @@ function performHandshake(peerAddress, infoHash, peerId) {
 
 
 
-async function downloadPiece(torrentFile, pieceIndex, outputPath) {
-  const fileContent = readFile(torrentFile);
-  const torrentData = bencode.decode(fileContent);
+async function downloadPiece(torrentData, pieceIndex, outputPath, peer, peerId) {
   const infoHash = calculateInfoHash(torrentData.info);
-  const peerId = generatePeerId();
-  
-  const trackerURL = String(torrentData.announce);
-  const peers = await getTrackerPeers(trackerURL, infoHash, torrentData.info.length, peerId);
-  
-  if (peers.length === 0) {
-    throw new Error("No peers available");
-  }
 
-  const peer = peers[0]; // Use the first peer for simplicity
-  const pieceLength = torrentData.info['piece length'];
+  const pieceLength = torrentData.info["piece length"];
+
   const lastPieceLength = torrentData.info.length % pieceLength || pieceLength;
   const currentPieceLength = pieceIndex === Math.floor(torrentData.info.length / pieceLength) ? lastPieceLength : pieceLength;
 
@@ -232,31 +222,31 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
       requestMsg.writeUInt32BE(length, 13);
       client.write(requestMsg);
       requestsSent++;
-      console.log(`Sent request for block: begin=${begin}, length=${length}`);
+      //console.log(`Sent request for block: begin=${begin}, length=${length}`);
     }
 
     let buffer = Buffer.alloc(0);
 
     client.on('data', (data) => {
-      console.log(`Received data of length: ${data.length}`);
+      //console.log(`Received data of length: ${data.length}`);
       buffer = Buffer.concat([buffer, data]);
 
       while (buffer.length >= 4) {
         if (!handshakeReceived) {
           if (buffer.length >= 68 && buffer.toString('utf8', 1, 20) === 'BitTorrent protocol') {
             handshakeReceived = true;
-            console.log('Handshake received');
+            //console.log('Handshake received');
             buffer = buffer.slice(68);
             const interestedMsg = Buffer.from([0, 0, 0, 1, 2]);
             client.write(interestedMsg);
-            console.log('Sent interested message');
+            //console.log('Sent interested message');
           } else {
             break;
           }
         } else {
           const messageLength = buffer.readUInt32BE(0);
           if (messageLength === 0) {
-            console.log('Received keep-alive message');
+            //console.log('Received keep-alive message');
             buffer = buffer.slice(4);
             continue;
           }
@@ -265,7 +255,7 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
           const messageId = buffer.readUInt8(4);
           const payload = buffer.slice(5, 4 + messageLength);
 
-          console.log(`Received message: id=${messageId}, length=${messageLength}`);
+          //console.log(`Received message: id=${messageId}, length=${messageLength}`);
 
           switch (messageId) {
             case 0: // Choke
@@ -311,7 +301,7 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
       blockData.copy(pieceData, blockBegin);
       receivedLength += blockData.length;
       blocksReceived++;
-      console.log(`Received block: index=${blockIndex}, begin=${blockBegin}, length=${blockData.length}`);
+      //console.log(`Received block: index=${blockIndex}, begin=${blockBegin}, length=${blockData.length}`);
       console.log(`Download progress: ${(receivedLength / currentPieceLength * 100).toFixed(2)}%`);
 
       if (receivedLength === currentPieceLength) {
@@ -320,7 +310,7 @@ async function downloadPiece(torrentFile, pieceIndex, outputPath) {
 
         if (pieceHash === expectedHash) {
           fs.writeFileSync(outputPath, pieceData);
-          console.log(`Piece ${pieceIndex} downloaded successfully`);
+          console.log(`Piece ${pieceIndex} downloaded successfully from peer: ${peer.ip}:${peer.port}`);
           cleanup(); // Call cleanup before resolving
           resolve();
         } else {
@@ -399,13 +389,13 @@ class WorkQueue {
     if (now - this.lastProgressUpdate > 5 * 60 * 1000) { // 5 minutes
       console.warn('No progress detected for 5 minutes, possible stall');
     }
-    
-    if (this.pendingPieces.size === 0 && 
-        this.inProgressPieces.size === 0 && 
-        this.completedPieces.size < this.totalPieces) {
+
+    if (this.pendingPieces.size === 0 &&
+      this.inProgressPieces.size === 0 &&
+      this.completedPieces.size < this.totalPieces) {
       throw new Error('Download deadlock detected');
     }
-    
+
     for (const piece of this.pendingPieces) {
       this.pendingPieces.delete(piece);
       this.inProgressPieces.add(piece);
@@ -438,16 +428,16 @@ async function downloadFile(torrentFile, outputPath, maxConnections = 5) {
   const fileLength = torrentData.info.length;
   const pieceLength = torrentData.info['piece length'];
   const totalPieces = Math.ceil(fileLength / pieceLength);
-  
+
   console.log(`Starting download of ${totalPieces} pieces`);
-  
+
   const workQueue = new WorkQueue(totalPieces);
   const downloadedPieces = new Map();
-  
+
   const infoHash = calculateInfoHash(torrentData.info);
   const peerId = generatePeerId();
   const trackerURL = String(torrentData.announce);
-  
+
   const peers = await getTrackerPeers(trackerURL, infoHash, fileLength, peerId);
   if (peers.length === 0) throw new Error("No peers available");
 
@@ -457,13 +447,19 @@ async function downloadFile(torrentFile, outputPath, maxConnections = 5) {
   const downloadTimeout = 30 * 60 * 1000; // 30 minutes
   let progressInterval;
   let downloadTimeoutId;
-  
+
   const downloadPromise = new Promise(async (resolve, reject) => {
     try {
-      const workers = peers.slice(0, actualConnections).map(peer => 
-        downloadWorker(peer, torrentFile, torrentData, infoHash, peerId, workQueue, downloadedPieces)
+      const workers = peers.slice(0, actualConnections).map(peer =>
+        downloadWorker(
+          peer,
+          torrentData,
+          peerId,
+          workQueue,
+          downloadedPieces
+        )
       );
-      
+
       progressInterval = setInterval(() => {
         const progress = (workQueue.completedPieces.size / totalPieces) * 100;
         console.log(`Download progress: ${progress.toFixed(2)}%`);
@@ -478,9 +474,9 @@ async function downloadFile(torrentFile, outputPath, maxConnections = 5) {
       if (downloadedPieces.size !== totalPieces) {
         throw new Error(`Download incomplete: ${downloadedPieces.size}/${totalPieces} pieces downloaded`);
       }
-      
+
       console.log('All pieces downloaded, assembling file...');
-      
+
       const finalBuffer = Buffer.concat(
         [...downloadedPieces.entries()]
           .sort((a, b) => a[0] - b[0])
@@ -519,10 +515,16 @@ async function downloadFile(torrentFile, outputPath, maxConnections = 5) {
   }
 }
 
-async function downloadWorker(peer, torrentFile, torrentData, infoHash, peerId, workQueue, downloadedPieces) {
+async function downloadWorker(
+  peer,
+  torrentData,
+  peerId,
+  workQueue,
+  downloadedPieces
+) {
   const maxRetries = 3;
   const maxRetriesPerPiece = new Map(); // Track retries per piece
-  
+
   while (!workQueue.isComplete()) {
     const pieceIndex = workQueue.getNextPiece();
     if (pieceIndex === null) {
@@ -533,27 +535,28 @@ async function downloadWorker(peer, torrentFile, torrentData, infoHash, peerId, 
     // Get retry count for this piece
     const retryCount = maxRetriesPerPiece.get(pieceIndex) || 0;
     if (retryCount >= maxRetries) {
-      console.error(`Max retries reached for piece ${pieceIndex}, marking as failed`);
+      //console.error(`Max retries reached for piece ${pieceIndex}, marking as failed`);
       workQueue.markPieceFailed(pieceIndex);
       continue;
     }
 
     try {
       const tempPath = path.join(os.tmpdir(), `piece_${pieceIndex}_${Date.now()}_${Math.random()}`);
-      
-      console.log(`Worker downloading piece ${pieceIndex} (attempt ${retryCount + 1}/${maxRetries})`);
-      await downloadPiece(torrentFile, pieceIndex, tempPath);
-      
+
+      //console.log(`Worker downloading piece ${pieceIndex} (attempt ${retryCount + 1}/${maxRetries})`);
+      downloadPiece(torrentData, pieceIndex, tempPath, peer, peerId);
+
+
       if (fs.existsSync(tempPath)) {
         const pieceData = fs.readFileSync(tempPath);
         downloadedPieces.set(pieceIndex, pieceData);
-        
+
         try {
           fs.unlinkSync(tempPath);
         } catch (err) {
           console.warn(`Failed to delete temp file ${tempPath}:`, err);
         }
-        
+
         workQueue.markPieceComplete(pieceIndex);
         console.log(`Piece ${pieceIndex} downloaded successfully`);
         maxRetriesPerPiece.delete(pieceIndex); // Reset retries on success
@@ -564,7 +567,7 @@ async function downloadWorker(peer, torrentFile, torrentData, infoHash, peerId, 
       console.error(`Failed to download piece ${pieceIndex}:`, error);
       maxRetriesPerPiece.set(pieceIndex, retryCount + 1);
       workQueue.markPieceFailed(pieceIndex);
-      
+
       // Add delay between retries
       await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
     }
@@ -577,9 +580,9 @@ async function main() {
   const peerID = generatePeerId();
   if (command != "decode") {
     // Decode file input
-    
+
     try {
-      
+
     } catch (error) {
       console.error("Error decoding file content:", error);
       throw error;
@@ -652,11 +655,11 @@ async function main() {
     }
 
   }
-  else if(command == "download_piece") {
+  else if (command == "download_piece") {
     const outputPath = process.argv[4];
     const torrentFile = process.argv[5];
     const pieceIndex = parseInt(process.argv[6]);
-    
+
     try {
       await downloadPiece(torrentFile, pieceIndex, outputPath);
       console.log(`Piece ${pieceIndex} downloaded to ${outputPath}`);
@@ -664,7 +667,7 @@ async function main() {
       console.error('Error downloading piece:', error);
     }
   }
-  else if(command == "download") {
+  else if (command == "download") {
     const outputPath = process.argv[4];
     const torrentFile = process.argv[5];
     try {
